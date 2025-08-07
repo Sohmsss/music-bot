@@ -32,12 +32,21 @@ export async function execute(interaction: ChatInputCommandInteraction) {
 
   const query = interaction.options.getString('query', true);
   
-  await interaction.deferReply();
+  // Defer reply immediately to prevent timeout
+  try {
+    await interaction.deferReply();
+  } catch (error) {
+    console.error('Failed to defer reply:', error);
+    return;
+  }
 
   try {
     const inputInfo = youtubeService.parseInput(query);
     let songsToAdd: any[] = [];
     let playlistInfo = null;
+
+    // Send an immediate response to let the user know we're processing
+    await interaction.editReply('🔍 Processing your request...');
 
     if (inputInfo.type === 'playlist') {
       const playlistData = await youtubeService.getPlaylistInfo(inputInfo.id);

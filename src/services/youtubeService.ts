@@ -1,4 +1,4 @@
-import ytdl from 'ytdl-core';
+import ytdl from '@distube/ytdl-core';
 import { google } from 'googleapis';
 import { QueueItem, YouTubeInfo } from '../types';
 
@@ -17,6 +17,7 @@ class YouTubeService {
       console.log('⚠️  YouTube API key not found - search and playlists will be disabled');
     }
   }
+
   parseInput(input: string): YouTubeInfo {
     // Check if it's a playlist URL
     if (input.includes('list=')) {
@@ -59,7 +60,13 @@ class YouTubeService {
         return null;
       }
       
-      const info = await ytdl.getInfo(url);
+      // Add timeout to prevent hanging
+      const info = await Promise.race([
+        ytdl.getInfo(url),
+        new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('YouTube info request timeout')), 10000)
+        )
+      ]) as any;
       
       console.log('📺 Video info retrieved:', {
         title: info.videoDetails.title,
