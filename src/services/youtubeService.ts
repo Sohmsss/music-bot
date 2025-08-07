@@ -1,4 +1,4 @@
-import ytdl from '@distube/ytdl-core';
+import ytdl from 'ytdl-core';
 import { google } from 'googleapis';
 import { QueueItem, YouTubeInfo } from '../types';
 

@@ -19,7 +19,6 @@
   "license": "MIT",
   "dependencies": {
     "@discordjs/voice": "^0.18.0",
-    "@distube/ytdl-core": "^4.16.12",
     "@types/node": "^20.10.5",
     "discord.js": "^14.14.1",
     "dotenv": "^16.3.1",
@@ -27,7 +26,8 @@
     "googleapis": "^155.0.0",
     "ts-node": "^10.9.2",
     "tweetnacl": "^1.0.3",
-    "typescript": "^5.3.3"
+    "typescript": "^5.3.3",
+    "ytdl-core": "^4.11.5"
   },
   "engines": {
     "node": ">=18.0.0"
