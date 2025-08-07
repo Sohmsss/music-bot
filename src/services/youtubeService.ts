@@ -50,41 +50,76 @@ class YouTubeService {
   }
 
   async getVideoInfo(videoId: string): Promise<QueueItem | null> {
-    try {
-      console.log('🔍 Fetching video info for ID:', videoId);
-      const url = `https://www.youtube.com/watch?v=${videoId}`;
-      
-      // Check if URL is valid
-      if (!ytdl.validateURL(url)) {
-        console.error('❌ Invalid YouTube URL:', url);
-        return null;
+    const maxRetries = 3;
+    let lastError: any;
+
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        console.log(`🔍 Fetching video info for ID: ${videoId} (attempt ${attempt}/${maxRetries})`);
+        const url = `https://www.youtube.com/watch?v=${videoId}`;
+        
+        // Check if URL is valid
+        if (!ytdl.validateURL(url)) {
+          console.error('❌ Invalid YouTube URL:', url);
+          return null;
+        }
+        
+        // Add timeout and retry logic
+        const info = await Promise.race([
+          ytdl.getInfo(url, {
+            requestOptions: {
+              headers: {
+                'Cookie': this.getRandomCookie(),
+                'User-Agent': this.getRandomUserAgent(),
+                'Accept-Language': 'en-US,en;q=0.9',
+                'Accept-Encoding': 'gzip, deflate, br',
+                'DNT': '1',
+                'Connection': 'keep-alive',
+                'Upgrade-Insecure-Requests': '1',
+              }
+            }
+          }),
+          new Promise((_, reject) => 
+            setTimeout(() => reject(new Error('YouTube info request timeout')), 15000)
+          )
+        ]) as any;
+        
+        console.log('📺 Video info retrieved:', {
+          title: info.videoDetails.title,
+          url: url,
+          duration: parseInt(info.videoDetails.lengthSeconds)
+        });
+        
+        return {
+          title: info.videoDetails.title || 'Unknown Title',
+          url: url,
+          duration: parseInt(info.videoDetails.lengthSeconds) || 0,
+          thumbnail: info.videoDetails.thumbnails?.[0]?.url,
+          requestedBy: '', // Will be set by command handler
+        };
+      } catch (error: any) {
+        lastError = error;
+        console.error(`❌ Error fetching video info for ${videoId} (attempt ${attempt}/${maxRetries}):`, error.message);
+        
+        // Check for specific errors that shouldn't be retried
+        if (error.message?.includes('Video unavailable') || 
+            error.message?.includes('Private video') ||
+            error.message?.includes('This video is not available')) {
+          console.log('Video is unavailable - not retrying');
+          break;
+        }
+        
+        // Wait before retrying with exponential backoff
+        if (attempt < maxRetries) {
+          const waitTime = Math.pow(2, attempt) * 1000; // 2s, 4s, 8s
+          console.log(`⏳ Waiting ${waitTime}ms before retry...`);
+          await new Promise(resolve => setTimeout(resolve, waitTime));
+        }
       }
-      
-      // Add timeout to prevent hanging
-      const info = await Promise.race([
-        ytdl.getInfo(url),
-        new Promise((_, reject) => 
-          setTimeout(() => reject(new Error('YouTube info request timeout')), 10000)
-        )
-      ]) as any;
-      
-      console.log('📺 Video info retrieved:', {
-        title: info.videoDetails.title,
-        url: url,
-        duration: parseInt(info.videoDetails.lengthSeconds)
-      });
-      
-      return {
-        title: info.videoDetails.title || 'Unknown Title',
-        url: url,
-        duration: parseInt(info.videoDetails.lengthSeconds) || 0,
-        thumbnail: info.videoDetails.thumbnails?.[0]?.url,
-        requestedBy: '', // Will be set by command handler
-      };
-    } catch (error) {
-      console.error('❌ Error fetching video info for', videoId, ':', error);
-      return null;
     }
+
+    console.error(`❌ Failed to fetch video info for ${videoId} after ${maxRetries} attempts. Last error:`, lastError?.message);
+    return null;
   }
 
   async searchVideo(query: string): Promise<QueueItem | null> {
@@ -234,34 +269,68 @@ class YouTubeService {
   }
 
   async getAudioStream(url: string) {
-    try {
-      // Add URL validation
-      if (!url || url === 'undefined' || typeof url !== 'string') {
-        throw new Error(`Invalid URL provided: ${url}`);
+    const maxRetries = 3;
+    let lastError: any;
+
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        // Add URL validation
+        if (!url || url === 'undefined' || typeof url !== 'string') {
+          throw new Error(`Invalid URL provided: ${url}`);
+        }
+        
+        // Validate YouTube URL
+        if (!ytdl.validateURL(url)) {
+          throw new Error(`Invalid YouTube URL: ${url}`);
+        }
+        
+        console.log(`🎵 Attempting to stream from URL: ${url} (attempt ${attempt}/${maxRetries})`);
+        
+        // Get audio stream with optimal quality and headers
+        const stream = ytdl(url, {
+          filter: 'audioonly',
+          quality: 'highestaudio',
+          highWaterMark: 1 << 25, // 32MB buffer
+          requestOptions: {
+            headers: {
+              'Cookie': this.getRandomCookie(),
+              'User-Agent': this.getRandomUserAgent(),
+              'Accept-Language': 'en-US,en;q=0.9',
+              'Accept-Encoding': 'gzip, deflate, br',
+              'DNT': '1',
+              'Connection': 'keep-alive',
+              'Upgrade-Insecure-Requests': '1',
+            }
+          }
+        });
+        
+        return {
+          stream,
+          type: 'opus'
+        };
+      } catch (error: any) {
+        lastError = error;
+        console.error(`❌ Error creating audio stream (attempt ${attempt}/${maxRetries}):`, error.message);
+        
+        // Check for specific errors that shouldn't be retried
+        if (error.message?.includes('Video unavailable') || 
+            error.message?.includes('Private video') ||
+            error.message?.includes('This video is not available')) {
+          console.log('Video is unavailable - not retrying');
+          throw error;
+        }
+        
+        // Wait before retrying with exponential backoff
+        if (attempt < maxRetries) {
+          const waitTime = Math.pow(2, attempt) * 1000; // 2s, 4s, 8s
+          console.log(`⏳ Waiting ${waitTime}ms before retry...`);
+          await new Promise(resolve => setTimeout(resolve, waitTime));
+        }
       }
-      
-      // Validate YouTube URL
-      if (!ytdl.validateURL(url)) {
-        throw new Error(`Invalid YouTube URL: ${url}`);
-      }
-      
-      console.log('🎵 Attempting to stream from URL:', url);
-      
-      // Get audio stream with optimal quality
-      const stream = ytdl(url, {
-        filter: 'audioonly',
-        quality: 'highestaudio',
-        highWaterMark: 1 << 25, // 32MB buffer
-      });
-      
-      return {
-        stream,
-        type: 'opus'
-      };
-    } catch (error) {
-      console.error('Error creating audio stream:', error);
-      throw error;
     }
+
+    console.error(`❌ Failed to create audio stream for ${url} after ${maxRetries} attempts. Last error:`, lastError?.message);
+    throw lastError;
   }
 
   // Helper method to parse YouTube duration format (PT4M13S) to seconds
@@ -278,6 +347,24 @@ class YouTubeService {
     } catch {
       return 0;
     }
+  }
+
+  // Helper method to get random user agent to avoid bot detection
+  private getRandomUserAgent(): string {
+    const userAgents = [
+      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36',
+      'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0',
+      'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Safari/605.1.15'
+    ];
+    return userAgents[Math.floor(Math.random() * userAgents.length)];
+  }
+
+  // Helper method to get random cookie to avoid bot detection
+  private getRandomCookie(): string {
+    const sessionIds = Array.from({length: 32}, () => Math.random().toString(36)[2]).join('');
+    return `CONSENT=YES+cb.20210328-17-p0.en+FX+${Math.floor(Math.random() * 999)}; VISITOR_INFO1_LIVE=${sessionIds}`;
   }
 }
 

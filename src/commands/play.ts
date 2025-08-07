@@ -14,31 +14,26 @@ export const data = new SlashCommandBuilder()
   );
 
 export async function execute(interaction: ChatInputCommandInteraction) {
+  // Defer reply IMMEDIATELY at the very start to prevent timeout
+  await interaction.deferReply();
+
   if (!interaction.guild) {
-    return interaction.reply({ content: 'This command can only be used in a server!', ephemeral: true });
+    return interaction.editReply({ content: 'This command can only be used in a server!' });
   }
 
   const member = interaction.member as GuildMember;
   const voiceChannel = member.voice.channel as VoiceChannel;
 
   if (!voiceChannel) {
-    return interaction.reply({ content: 'You need to be in a voice channel to play music!', ephemeral: true });
+    return interaction.editReply({ content: 'You need to be in a voice channel to play music!' });
   }
 
   const permissions = voiceChannel.permissionsFor(interaction.client.user!);
   if (!permissions?.has(['Connect', 'Speak'])) {
-    return interaction.reply({ content: 'I need permissions to join and speak in your voice channel!', ephemeral: true });
+    return interaction.editReply({ content: 'I need permissions to join and speak in your voice channel!' });
   }
 
   const query = interaction.options.getString('query', true);
-  
-  // Defer reply immediately to prevent timeout
-  try {
-    await interaction.deferReply();
-  } catch (error) {
-    console.error('Failed to defer reply:', error);
-    return;
-  }
 
   try {
     const inputInfo = youtubeService.parseInput(query);
@@ -63,14 +58,14 @@ export async function execute(interaction: ChatInputCommandInteraction) {
     } else if (inputInfo.type === 'video') {
       const song = await youtubeService.getVideoInfo(inputInfo.id);
       if (!song) {
-        return interaction.editReply('❌ Could not fetch video information. Please check the URL.');
+        return interaction.editReply('❌ Could not fetch video information. This might be due to:\n• Video is private, deleted, or unavailable\n• YouTube is blocking requests (try again in a few minutes)\n• Network connectivity issues\n\nPlease check the URL and try again.');
       }
       songsToAdd = [song];
     } else {
       // Search
       const song = await youtubeService.searchVideo(query);
       if (!song) {
-        return interaction.editReply('❌ No results found for your search. Make sure you have a YouTube API key configured or try providing a direct YouTube URL.');
+        return interaction.editReply('❌ No results found for your search. This might be due to:\n• No matching videos found\n• YouTube API key not configured\n• Network connectivity issues\n\nTry providing a direct YouTube URL instead.');
       }
       songsToAdd = [song];
     }
@@ -158,8 +153,22 @@ export async function execute(interaction: ChatInputCommandInteraction) {
         });
       }
     }
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error in play command:', error);
-    await interaction.editReply('❌ An error occurred while trying to play the music.');
+    
+    let errorMessage = '❌ An error occurred while trying to play the music.';
+    
+    // Provide more specific error messages based on the error type
+    if (error.message?.includes('Sign in to confirm you\'re not a bot')) {
+      errorMessage = '❌ YouTube is currently blocking requests. This is a temporary issue. Please try again in a few minutes.';
+    } else if (error.message?.includes('Video unavailable')) {
+      errorMessage = '❌ The requested video is unavailable, private, or has been removed.';
+    } else if (error.message?.includes('timeout')) {
+      errorMessage = '❌ Request timed out. Please check your internet connection and try again.';
+    } else if (error.message?.includes('UnrecoverableError')) {
+      errorMessage = '❌ YouTube is temporarily blocking requests. Please wait a few minutes and try again.';
+    }
+    
+    await interaction.editReply(errorMessage);
   }
 }
